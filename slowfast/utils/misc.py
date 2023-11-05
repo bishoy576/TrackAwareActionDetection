@@ -131,6 +131,10 @@ def _get_model_analysis_input(cfg, use_train_input):
         if cfg.NUM_GPUS:
             bbox = bbox.cuda()
         inputs = (model_inputs, bbox)
+        if cfg.DETECTION.ROI_HEAD_TYPE.find("TRACK")>-1:
+            tracks = torch.tensor([[0, 0, 1.0, 1.0, 1.0]*32])
+            tracks = tracks.reshape(32,5).cuda()
+            inputs = (model_inputs, bbox, tracks)
     else:
         inputs = (model_inputs,)
     return inputs

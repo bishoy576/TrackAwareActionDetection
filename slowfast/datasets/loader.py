@@ -61,6 +61,10 @@ def detection_collate(batch):
     time = default_collate(time)
     labels = torch.tensor(np.concatenate(labels, axis=0)).float()
 
+    if 'tracks' in extra_data[0]:
+        t = extra_data[0]['tracks'].shape[1]
+        time_range = np.arange(0,t).reshape(-1,1)
+
     collated_extra_data = {}
     for key in extra_data[0].keys():
         data = [d[key] for d in extra_data]
@@ -78,6 +82,24 @@ def detection_collate(batch):
             collated_extra_data[key] = torch.tensor(
                 list(itertools.chain(*data))
             ).view(-1, 2)
+        elif key == "track_labels":
+            track_labels = np.concatenate(data, axis=0)
+            collated_extra_data[key] = torch.from_numpy(track_labels).long()
+            # print(collated_extra_data[key])
+        elif key == "tracks":
+            track_rois_list = []
+            cc = 0
+            for img_tracks in data:
+                for tracksbb in img_tracks:
+                    # print(tracksbb.shape, time_range.shape)
+                    if tracksbb.shape[0] > 0:
+                        rois = np.concatenate([time_range+cc, tracksbb], axis=1)
+                    else:
+                        rois = tracksbb.new_zeros((0, 5))
+                    track_rois_list.append(rois)
+                cc += t
+            tracks = np.concatenate(track_rois_list, axis=0)
+            collated_extra_data[key] = torch.tensor(tracks).float()
         else:
             collated_extra_data[key] = default_collate(data)
 

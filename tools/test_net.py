@@ -7,6 +7,7 @@ import numpy as np
 import os
 import pickle
 import torch
+import pdb
 
 import slowfast.utils.checkpoint as cu
 import slowfast.utils.distributed as du
@@ -66,14 +67,19 @@ def perform_test(test_loader, model, test_meter, cfg, writer=None):
                         val[i] = val[i].cuda(non_blocking=True)
                 else:
                     meta[key] = val.cuda(non_blocking=True)
+
         test_meter.data_toc()
 
         if cfg.DETECTION.ENABLE:
+            if 'tracks' in meta:
+                tracks = meta["tracks"]
+            else:
+                tracks = None
             # Compute the predictions.
-            preds = model(inputs, meta["boxes"])
+            preds = model(inputs, meta["boxes"], tracks=tracks)
             ori_boxes = meta["ori_boxes"]
             metadata = meta["metadata"]
-
+            
             preds = preds.detach().cpu() if cfg.NUM_GPUS else preds.detach()
             ori_boxes = (
                 ori_boxes.detach().cpu() if cfg.NUM_GPUS else ori_boxes.detach()
@@ -81,11 +87,18 @@ def perform_test(test_loader, model, test_meter, cfg, writer=None):
             metadata = (
                 metadata.detach().cpu() if cfg.NUM_GPUS else metadata.detach()
             )
-
+            
+            
+            # pdb.set_trace()
             if cfg.NUM_GPUS > 1:
                 preds = torch.cat(du.all_gather_unaligned(preds), dim=0)
                 ori_boxes = torch.cat(du.all_gather_unaligned(ori_boxes), dim=0)
                 metadata = torch.cat(du.all_gather_unaligned(metadata), dim=0)
+            #     logger.info('gathering done!')
+            
+            # logger.info('preds shape: {}'.format(preds.shape))
+            # logger.info('ori_boxes shape: {}'.format(ori_boxes.shape))
+            # logger.info('metadata shape: {}'.format(metadata.shape))
 
             test_meter.iter_toc()
             # Update and log stats.
@@ -118,22 +131,24 @@ def perform_test(test_loader, model, test_meter, cfg, writer=None):
         else:
             # Perform the forward pass.
             preds = model(inputs)
-        # Gather all the predictions across all the devices to perform ensemble.
-        if cfg.NUM_GPUS > 1:
-            preds, labels, video_idx = du.all_gather([preds, labels, video_idx])
-        if cfg.NUM_GPUS:
-            preds = preds.cpu()
-            labels = labels.cpu()
-            video_idx = video_idx.cpu()
+        
+        if not cfg.DETECTION.ENABLE:
+            # Gather all the predictions across all the devices to perform ensemble.
+            if cfg.NUM_GPUS > 1:
+                preds, labels, video_idx = du.all_gather([preds, labels, video_idx])
+            if cfg.NUM_GPUS:
+                preds = preds.cpu()
+                labels = labels.cpu()
+                video_idx = video_idx.cpu()
 
-        test_meter.iter_toc()
+            test_meter.iter_toc()
 
-        if not cfg.VIS_MASK.ENABLE:
-            # Update and log stats.
-            test_meter.update_stats(
-                preds.detach(), labels.detach(), video_idx.detach()
-            )
-        test_meter.log_iter_stats(cur_iter)
+            if not cfg.VIS_MASK.ENABLE:
+                # Update and log stats.
+                test_meter.update_stats(
+                    preds.detach(), labels.detach(), video_idx.detach()
+                )
+            test_meter.log_iter_stats(cur_iter)
 
         test_meter.iter_tic()
 

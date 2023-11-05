@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.init import trunc_normal_
-
+from collections import OrderedDict
 import slowfast.utils.logging as logging
 import slowfast.utils.weight_init_helper as init_helper
 from slowfast.models.attention import MultiScaleBlock
@@ -23,6 +23,7 @@ from slowfast.models.utils import (
     validate_checkpoint_wrapper_import,
 )
 
+from .fpn_block import FeaturePyramidNetwork
 from . import head_helper, operators, resnet_helper, stem_helper  # noqa
 from .build import MODEL_REGISTRY
 
@@ -368,7 +369,18 @@ class SlowFast(nn.Module):
             norm_module=self.norm_module,
         )
 
-        if cfg.DETECTION.ENABLE:
+        self.fpn = False
+        if cfg.DETECTION.SPATIAL_FPN and cfg.DETECTION.ENABLE:
+            self.slow_fpn = FeaturePyramidNetwork(
+                [width_per_group * 8, width_per_group * 16, width_per_group * 32], 512)
+            self.fast_fpn = FeaturePyramidNetwork([width_per_group * 8 // cfg.SLOWFAST.BETA_INV,
+                                                   width_per_group * 16 // cfg.SLOWFAST.BETA_INV,
+                                                   width_per_group * 32 // cfg.SLOWFAST.BETA_INV], 64)
+            width_per_group = 16
+            self.fpn = True
+        
+        self.use_tracks=False
+        if cfg.DETECTION.ENABLE and cfg.DETECTION.ROI_HEAD_TYPE == "CUBE":
             self.head = head_helper.ResNetRoIHead(
                 dim_in=[
                     width_per_group * 32,
@@ -392,6 +404,33 @@ class SlowFast(nn.Module):
                 aligned=cfg.DETECTION.ALIGNED,
                 detach_final_fc=cfg.MODEL.DETACH_FINAL_FC,
             )
+        elif cfg.DETECTION.ENABLE and cfg.DETECTION.ROI_HEAD_TYPE == "TRACK":
+            self.use_tracks=True
+            self.head = head_helper.ResNetTrackHead(
+                dim_in=[
+                    width_per_group * 32,
+                    width_per_group * 32 // cfg.SLOWFAST.BETA_INV,
+                ],
+                num_classes=cfg.MODEL.NUM_CLASSES,
+                pool_size=[
+                    [
+                        cfg.DATA.NUM_FRAMES
+                        // cfg.SLOWFAST.ALPHA
+                        // pool_size[0][0],
+                        1,
+                        1,
+                    ],
+                    [cfg.DATA.NUM_FRAMES // pool_size[1][0], 1, 1],
+                ],
+                resolution=[[cfg.DETECTION.ROI_XFORM_RESOLUTION] * 2] * 2,
+                scale_factor=[cfg.DETECTION.SPATIAL_SCALE_FACTOR] * 2,
+                dropout_rate=cfg.MODEL.DROPOUT_RATE,
+                act_func=cfg.MODEL.HEAD_ACT,
+                aligned=cfg.DETECTION.ALIGNED,
+                detach_final_fc=cfg.MODEL.DETACH_FINAL_FC,
+            )
+        elif cfg.DETECTION.ENABLE:
+            raise NotImplementedError('Only ROI_HEAD_TYPE = CUBE or TRACK is supported for detection')
         else:
             self.head = head_helper.ResNetBasicHead(
                 dim_in=[
@@ -422,7 +461,7 @@ class SlowFast(nn.Module):
                 cfg=cfg,
             )
 
-    def forward(self, x, bboxes=None):
+    def forward(self, x, bboxes=None, tracks=None):
         x = x[:]  # avoid pass by reference
         x = self.s1(x)
         x = self.s1_fuse(x)
@@ -431,12 +470,22 @@ class SlowFast(nn.Module):
         for pathway in range(self.num_pathways):
             pool = getattr(self, "pathway{}_pool".format(pathway))
             x[pathway] = pool(x[pathway])
-        x = self.s3(x)
-        x = self.s3_fuse(x)
-        x = self.s4(x)
-        x = self.s4_fuse(x)
+        x3 = self.s3(x)
+        x = self.s3_fuse(x3)
+        x4 = self.s4(x)
+        x = self.s4_fuse(x4)
         x = self.s5(x)
-        if self.enable_detection:
+        
+        if self.fpn:
+            slow_x = self.slow_fpn(OrderedDict(
+                {'feat0': x3[0], 'feat1': x4[0], 'feat2': x[0]}))
+            fast_x = self.fast_fpn(OrderedDict(
+                {'feat0': x3[1], 'feat1': x4[1], 'feat2': x[1]}))
+            x = (slow_x, fast_x)
+
+        if self.enable_detection and self.use_tracks:
+            x = self.head(x, bboxes, tracks)
+        elif self.enable_detection:
             x = self.head(x, bboxes)
         else:
             x = self.head(x)

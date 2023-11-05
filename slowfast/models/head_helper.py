@@ -13,10 +13,186 @@ from slowfast.models.attention import MultiScaleBlock
 from slowfast.models.batchnorm_helper import (
     NaiveSyncBatchNorm1d as NaiveSyncBatchNorm1d,
 )
+import torch.nn.functional as F
 from slowfast.models.nonlocal_helper import Nonlocal
 
 logger = logging.get_logger(__name__)
 
+
+class ResNetTrackHead(nn.Module):
+    """
+    ResNe(X)t RoI head.
+    """
+
+    def __init__(
+        self,
+        dim_in,
+        num_classes,
+        pool_size,
+        resolution,
+        scale_factor,
+        dropout_rate=0.0,
+        act_func="softmax",
+        aligned=True,
+        detach_final_fc=False,
+    ):
+        """
+        The `__init__` method of any subclass should also contain these
+            arguments.
+        ResNetRoIHead takes p pathways as input where p in [1, infty].
+
+        Args:
+            dim_in (list): the list of channel dimensions of the p inputs to the
+                ResNetHead.
+            num_classes (int): the channel dimensions of the p outputs to the
+                ResNetHead.
+            pool_size (list): the list of kernel sizes of p spatial temporal
+                poolings, temporal pool kernel size, spatial pool kernel size,
+                spatial pool kernel size in order.
+            resolution (list): the list of spatial output size from the ROIAlign.
+            scale_factor (list): the list of ratio to the input boxes by this
+                number.
+            dropout_rate (float): dropout rate. If equal to 0.0, perform no
+                dropout.
+            act_func (string): activation function to use. 'softmax': applies
+                softmax on the output. 'sigmoid': applies sigmoid on the output.
+            aligned (bool): if False, use the legacy implementation. If True,
+                align the results more perfectly.
+            detach_final_fc (bool): if True, detach the final fc layer from the
+                gradient graph. By doing so, only the final fc layer will be
+                trained.
+        Note:
+            Given a continuous coordinate c, its two neighboring pixel indices
+            (in our pixel model) are computed by floor (c - 0.5) and ceil
+            (c - 0.5). For example, c=1.3 has pixel neighbors with discrete
+            indices [0] and [1] (which are sampled from the underlying signal at
+            continuous coordinates 0.5 and 1.5). But the original roi_align
+            (aligned=False) does not subtract the 0.5 when computing neighboring
+            pixel indices and therefore it uses pixels with a slightly incorrect
+            alignment (relative to our pixel model) when performing bilinear
+            interpolation.
+            With `aligned=True`, we first appropriately scale the ROI and then
+            shift it by -0.5 prior to calling roi_align. This produces the
+            correct neighbors; It makes negligible differences to the model's
+            performance if ROIAlign is used together with conv layers.
+        """
+        super(ResNetTrackHead, self).__init__()
+        assert (
+            len({len(pool_size), len(dim_in)}) == 1
+        ), "pathway dimensions are not consistent."
+        self.num_pathways = len(pool_size)
+        self.detach_final_fc = detach_final_fc
+
+        for pathway in range(self.num_pathways):
+            temporal_pool = nn.AvgPool3d(
+                [pool_size[pathway][0], 1, 1], stride=1
+            )
+            self.add_module("s{}_tpool".format(pathway), temporal_pool)
+
+            roi_align = ROIAlign(
+                resolution[pathway],
+                spatial_scale=1.0 / scale_factor[pathway],
+                sampling_ratio=0,
+                aligned=aligned,
+            )
+            self.add_module("s{}_roi".format(pathway), roi_align)
+            spatial_pool = nn.MaxPool2d(resolution[pathway], stride=1)
+            self.add_module("s{}_spool".format(pathway), spatial_pool)
+
+        if dropout_rate > 0.0:
+            self.dropout = nn.Dropout(dropout_rate)
+
+        # Perform FC in a fully convolutional manner. The FC layer will be
+        # initialized with a different std comparing to convolutional layers.
+        self.projection = nn.Linear(sum(dim_in)*2, num_classes, bias=True)
+
+        self.tube_spatial_pool = nn.AdaptiveAvgPool3d((None, 1, 1))
+        self.tube_temporal_pool = nn.AdaptiveMaxPool1d((1))
+        
+        self.conv_a = nn.Conv1d(sum(dim_in), sum(dim_in),
+                                kernel_size=3, padding=2, dilation=2, bias=True)
+        
+        self.roi_layer = ROIAlign(
+            resolution[0],
+            spatial_scale=1.0 / scale_factor[0],
+            sampling_ratio=0,
+            aligned=aligned,
+        )
+        
+        # Softmax for evaluation and testing.
+        if act_func == "softmax":
+            self.act = nn.Softmax(dim=1)
+        elif act_func == "sigmoid":
+            self.act = nn.Sigmoid()
+        else:
+            raise NotImplementedError(
+                "{} is not supported as an activation"
+                "function.".format(act_func)
+            )
+    def tube_roi_align(self, numb, features, tracks):
+        # tube_feat = torch.cat(feat, axis=1).contiguous()
+        tube_feat = features.permute(0, 2, 1, 3, 4).contiguous()
+        _, t, c, w, h = tube_feat.shape
+        tube_feat = tube_feat.view(-1, c, w, h)
+        # print(tracks.shape, tube_feat.shape)
+        tube_roi_feat = self.roi_layer(tube_feat, tracks)
+        _, c, w, h = tube_roi_feat.shape
+        tube_roi_feat = tube_roi_feat.view(
+            numb, -1, c, w, h).permute(0, 2, 1, 3, 4).contiguous()
+        tube_roi_feat = self.tube_spatial_pool(
+            tube_roi_feat).squeeze(-1).squeeze(-1)
+        # tube_roi_feat = self.tube_temporal_pool(tube_roi_feat).squeeze(-1)
+        return tube_roi_feat
+    
+    def forward(self, inputs, bboxes, tracks):
+        assert (
+            len(inputs) == self.num_pathways
+        ), "Input tensor does not contain {} pathway".format(self.num_pathways)
+        pool_out = []
+        for pathway in range(self.num_pathways):
+            t_pool = getattr(self, "s{}_tpool".format(pathway))
+            out = t_pool(inputs[pathway])
+            assert out.shape[2] == 1
+            out = torch.squeeze(out, 2)
+
+            roi_align = getattr(self, "s{}_roi".format(pathway))
+            out = roi_align(out, bboxes)
+
+            s_pool = getattr(self, "s{}_spool".format(pathway))
+            pool_out.append(s_pool(out))
+
+
+        # B C H W.
+        base_feats = torch.cat(pool_out, 1).squeeze(-1).squeeze(-1)
+
+        numb = bboxes.shape[0]
+
+        maxT = max([x.shape[2] for x in inputs])
+        max_shape = (maxT, ) + inputs[0].shape[3:]
+        # resize each feat to the largest shape (w. nearest)
+        feat = [F.interpolate(x, max_shape).contiguous() for x in inputs]
+        feat = torch.cat(feat, 1)
+        # print(feat.shape, 'feat shape')
+        features = self.tube_roi_align(numb, feat, tracks)
+        # print(features.shape, 'features shape')
+        features = self.conv_a(features)
+        tube_features = features[:,:,10:23]  # keep local features
+        tube_features = self.tube_temporal_pool(tube_features).squeeze(-1)
+
+        # print(tube_features.shape, 'tube_features shape')
+        # print(base_feats.shape, 'base_feats shape')
+        x = torch.cat((tube_features, base_feats), 1)
+        # Perform dropout.
+        if hasattr(self, "dropout"):
+            x = self.dropout(x)
+
+        x = x.view(x.shape[0], -1)
+        if self.detach_final_fc:
+            x = x.detach()
+        x = self.projection(x)
+        x = self.act(x)
+        return x
+    
 
 class ResNetRoIHead(nn.Module):
     """

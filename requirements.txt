@@ -1,0 +1,15 @@
+cython
+pillow
+iopath
+simplejson
+psutil
+opencv-python
+torch
+torchvision
+tensorboard
+pytorchvideo
+fairscale
+# git+https://github.com/facebookresearch/detectron2.git
+# 'git+https://github.com/facebookresearch/fvcore.git' ##  fairscale with automatically install yacs, iopath, parameterized, fvcore, av, pytorchvideo, fairscale 
+# detectron2 install cocoAPI
+# python setup.py build develop

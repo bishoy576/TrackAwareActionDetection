@@ -64,10 +64,11 @@ def read_csv(csv_file, class_whitelist=None, load_score=False):
     boxes = defaultdict(list)
     labels = defaultdict(list)
     scores = defaultdict(list)
+    logger.info("Reading: %s" % csv_file)
     with pathmgr.open(csv_file, "r") as f:
         reader = csv.reader(f)
         for row in reader:
-            assert len(row) in [7, 8], "Wrong number of columns: " + row
+            # assert len(row) in [7, 8], "Wrong number of columns: " + str(row)
             image_key = make_image_key(row[0], row[1])
             x1, y1, x2, y2 = [float(n) for n in row[2:6]]
             action_id = int(row[6])

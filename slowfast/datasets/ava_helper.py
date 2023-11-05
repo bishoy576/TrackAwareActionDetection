@@ -103,6 +103,7 @@ def load_boxes_and_labels(cfg, mode):
         ann_is_gt_box=ann_is_gt_box,
         detect_thresh=detect_thresh,
         boxes_sample_rate=boxes_sample_rate,
+        dataset_name=cfg.AVA.SUB_DATASET,
     )
     logger.info(
         "Finished loading annotations from: %s" % ", ".join(ann_filenames)
@@ -114,7 +115,7 @@ def load_boxes_and_labels(cfg, mode):
     return all_boxes
 
 
-def get_keyframe_data(boxes_and_labels):
+def get_keyframe_data(boxes_and_labels, dataset_name='ava'):
     """
     Getting keyframe indices, boxes and labels in the dataset.
 
@@ -128,13 +129,19 @@ def get_keyframe_data(boxes_and_labels):
             video_idx and sec_idx to a list of boxes and corresponding labels.
     """
 
-    def sec_to_frame(sec):
+    def sec_to_frame(sec, dataset_name='ava'):
         """
         Convert time index (in second) to frame index.
         0: 900
         30: 901
         """
-        return (sec - 900) * FPS
+        sec = float(sec)
+        if dataset_name == 'ava':
+            return (sec - 900) * FPS
+        elif dataset_name in ['ucf24', 'multisports','road']:
+            return int(sec-1)
+        else:
+            raise ValueError('Unknown dataset name: {}'.format(dataset_name))
 
     keyframe_indices = []
     keyframe_boxes_and_labels = []
@@ -143,12 +150,12 @@ def get_keyframe_data(boxes_and_labels):
         sec_idx = 0
         keyframe_boxes_and_labels.append([])
         for sec in boxes_and_labels[video_idx].keys():
-            if sec not in AVA_VALID_FRAMES:
+            if sec not in AVA_VALID_FRAMES and dataset_name == 'ava':
                 continue
 
             if len(boxes_and_labels[video_idx][sec]) > 0:
                 keyframe_indices.append(
-                    (video_idx, sec_idx, sec, sec_to_frame(sec))
+                    (video_idx, sec_idx, sec, sec_to_frame(sec, dataset_name))
                 )
                 keyframe_boxes_and_labels[video_idx].append(
                     boxes_and_labels[video_idx][sec]
@@ -180,7 +187,7 @@ def get_num_boxes_used(keyframe_indices, keyframe_boxes_and_labels):
 
 
 def parse_bboxes_file(
-    ann_filenames, ann_is_gt_box, detect_thresh, boxes_sample_rate=1
+    ann_filenames, ann_is_gt_box, detect_thresh, boxes_sample_rate=1, dataset_name='ava'
 ):
     """
     Parse AVA bounding boxes files.
@@ -216,8 +223,12 @@ def parse_bboxes_file(
 
                 if video_name not in all_boxes:
                     all_boxes[video_name] = {}
-                    for sec in AVA_VALID_FRAMES:
-                        all_boxes[video_name][sec] = {}
+                    if dataset_name == 'ava':
+                        for sec in AVA_VALID_FRAMES: 
+                            all_boxes[video_name][sec] = {}
+                
+                if dataset_name in ['ucf24', 'multisports','road'] and frame_sec not in all_boxes[video_name]:
+                    all_boxes[video_name][frame_sec] = {}
 
                 if box_key not in all_boxes[video_name][frame_sec]:
                     all_boxes[video_name][frame_sec][box_key] = [box, []]

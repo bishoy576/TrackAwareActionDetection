@@ -131,7 +131,11 @@ def train_epoch(
                 )
             elif cfg.DETECTION.ENABLE:
                 # Compute the predictions.
-                preds = model(inputs, meta["boxes"])
+                if 'tracks' in meta:
+                    tracks = meta["tracks"]
+                else:
+                    tracks = None
+                preds = model(inputs, meta["boxes"], tracks=tracks)
             elif cfg.MASK.ENABLE:
                 preds, labels = model(inputs)
             else:

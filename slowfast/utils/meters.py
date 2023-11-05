@@ -66,9 +66,12 @@ class AVAMeter:
         self.all_ori_boxes = []
         self.all_metadata = []
         self.overall_iters = overall_iters
-        self.excluded_keys = read_exclusions(
-            os.path.join(cfg.AVA.ANNOTATION_DIR, cfg.AVA.EXCLUSION_FILE)
-        )
+        if cfg.AVA.SUB_DATASET == "ava":
+            self.excluded_keys = read_exclusions(
+                    os.path.join(cfg.AVA.ANNOTATION_DIR, cfg.AVA.EXCLUSION_FILE))
+        else:
+            self.excluded_keys = set()
+            
         self.categories, self.class_whitelist = read_labelmap(
             os.path.join(cfg.AVA.ANNOTATION_DIR, cfg.AVA.LABEL_MAP_FILE)
         )
