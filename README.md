@@ -1,28 +1,28 @@
 # Track Aware Action Detection (TAAD)
 
-Here you find the the evaluation and training for [TAAD](https://arxiv.org/abs/2209.02250) on [MultiSports](https://deeperaction.github.io/datasets/multisports.html) Datatset. TAAD finished on top spot in [MultiSport challenge](https://deeperaction.github.io/results/index.html) held in conjuction with ECCV 2022.
+Here you find the evaluation and training for [TAAD](https://arxiv.org/abs/2209.02250) on [MultiSports](https://deeperaction.github.io/datasets/multisports.html) Dataset. TAAD finished in the top spot in [MultiSport challenge](https://deeperaction.github.io/results/index.html) held in conjunction with ECCV 2022.
 
 ## License
 
-This repo heavly rely on [PySlowFast](https://github.com/facebookresearch/SlowFast) so it contain lot of stuff from there. It has same License as PySlowFast, which is released under the [Apache 2.0 license](LICENSE).
+This repo heavily relies on [PySlowFast](https://github.com/facebookresearch/SlowFast) so it contains a lot of stuff from there. It has the same License as PySlowFast, which is released under the [Apache 2.0 license](LICENSE).
 
 ## Model Zoo and Baselines
 
-Comming soon!
+Coming soon!
 
 ## Installation
 
 Please find installation instructions for PyTorch and PySlowFast in [INSTALL.md](INSTALL.md).
 
-## Dataset Prepration
+## Dataset Preparation
 
 ## Eval
 
-Comming soon!
+Coming soon!
 
 ## Train
 
-Comming soon!
+Coming soon!
 
 ## Contributors
 TAAD is written and maintained by [Gurkirt Singh](https://gurkirt.github.io/)
