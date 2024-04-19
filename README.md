@@ -8,27 +8,26 @@ This repo heavily relies on [PySlowFast](https://github.com/facebookresearch/Slo
 
 ## Model Zoo and Baselines
 
-Coming soon!
+Multisport TAAD TCN model and multisports tracks generteted using Yolov5 and DeepSORT are availble to Download from [Googl-Drive](https://drive.google.com/drive/folders/1KP6asw4vZb-TuD26DLMoTAwQzczmNQQQ?usp=sharing).
 
 ## Installation
 
 Please find installation instructions for PyTorch and PySlowFast in [INSTALL.md](INSTALL.md).
 
 ## Dataset Preparation
+Download Track from [Googl-Drive](https://drive.google.com/drive/folders/1KP6asw4vZb-TuD26DLMoTAwQzczmNQQQ?usp=sharing). and Extract frame using multisport script provided by authors of Mulitsports.
 
 ## Eval
-
-Coming soon!
+Given the extracted frames and downloaed tracks and TAAD-TCN model from [Googl-Drive](https://drive.google.com/drive/folders/1KP6asw4vZb-TuD26DLMoTAwQzczmNQQQ?usp=sharing). Now, you shoiuld be able to run TAAD-TCN which achives the best perfromance on Mulitsports.  
 
 ## Train
-
-Coming soon!
+Unfortunalty I do not have the bandwidth to reproduce this myself. But it should be doable with given current set of code base. 
 
 ## Contributors
-TAAD is written and maintained by [Gurkirt Singh](https://gurkirt.github.io/)
+TAAD is written by [Gurkirt Singh](https://gurkirt.github.io/). I am happy to recieve a pull request for training reproduction. 
 
 ## Citing PySlowFast
-If you find PySlowFast useful in your research, please use the following BibTeX entry for citation.
+If you find this useful in your research, please use the following BibTeX entry for citation.
 ```BibTeX
 @InProceedings{Singh_2023_WACV,
     author    = {Singh, Gurkirt and Choutas, Vasileios and Saha, Suman and Yu, Fisher and Van Gool, Luc},
@@ -37,5 +36,17 @@ If you find PySlowFast useful in your research, please use the following BibTeX 
     month     = {January},
     year      = {2023},
     pages     = {6009-6018}
+}
+```
+Don't forget to cite orignal PySlowfast Repo.
+
+
+```BibTeX
+@misc{fan2020pyslowfast,
+  author =       {Haoqi Fan and Yanghao Li and Bo Xiong and Wan-Yen Lo and
+                  Christoph Feichtenhofer},
+  title =        {PySlowFast},
+  howpublished = {\url{https://github.com/facebookresearch/slowfast}},
+  year =         {2020}
 }
 ```
