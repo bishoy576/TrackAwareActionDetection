@@ -4,7 +4,6 @@ iopath
 simplejson
 psutil
 opencv-python
-torch
 torchvision
 tensorboard
 pytorchvideo
